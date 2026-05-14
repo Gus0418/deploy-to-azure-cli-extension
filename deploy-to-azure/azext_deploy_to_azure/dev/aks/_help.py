@@ -4,17 +4,22 @@
 # --------------------------------------------------------------------------------------------
 
 from knack.help_files import helps
+from azext_deploy_to_azure.dev.common.locale.locale_helper import get_messages
 
 
 def load_aks_help():
-    helps['aks app'] = """
+    _msgs = get_messages()
+    _group_short = _msgs.HELP_AKS_GROUP_SHORT if _msgs else 'Commands to manage AKS app.'
+    _up_short = _msgs.HELP_AKS_UP_SHORT if _msgs else 'Deploy to AKS via GitHub actions.'
+
+    helps['aks app'] = f"""
     type: group
-    short-summary: Commands to manage AKS app.
+    short-summary: {_group_short}
     long-summary:
     """
 
-    helps['aks app up'] = """
+    helps['aks app up'] = f"""
     type: command
-    short-summary: Deploy to AKS via GitHub actions.
+    short-summary: {_up_short}
     long-summary:
     """

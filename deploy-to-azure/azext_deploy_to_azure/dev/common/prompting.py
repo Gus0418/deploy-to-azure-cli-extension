@@ -8,8 +8,11 @@ import sys
 from knack.log import get_logger
 from knack.util import CLIError
 from knack.prompting import NoTTYException, verify_is_a_tty, prompt
+from azext_deploy_to_azure.dev.common.locale.locale_helper import get_messages
 
 logger = get_logger(__name__)
+
+_msgs = get_messages()
 
 
 def delete_last_line():
@@ -40,7 +43,8 @@ def prompt_user_friendly_choice_list(msg, a_list, default=1, help_string=None, e
     """
     if not a_list:
         if not error_msg_empty_list:
-            error_msg_empty_list = '{} Error: No options to load.'.format(msg)
+            _tmpl = _msgs.PROMPT_ERROR_NO_OPTIONS if _msgs else '{} Error: No options to load.'
+            error_msg_empty_list = _tmpl.format(msg)
         raise CLIError(error_msg_empty_list)
     verify_is_a_tty_or_raise_error(error_msg=error_msg)
     options = '\n'.join([' [{}] {}{}'
@@ -50,12 +54,14 @@ def prompt_user_friendly_choice_list(msg, a_list, default=1, help_string=None, e
                          for i, x in enumerate(a_list)])
     allowed_vals = list(range(1, len(a_list) + 1))
     linesToDelete = len(a_list) + 1
+    _choice_tmpl = _msgs.PROMPT_ENTER_CHOICE if _msgs else 'Please enter a choice [Default choice({})]: '
+    _valid_tmpl = _msgs.PROMPT_VALID_VALUES if _msgs else 'Valid values are %s'
     while True:
-        val = prompt('{}\n{}\nPlease enter a choice [Default choice({})]: '.format(msg, options, default))
+        val = prompt('{}\n{}\n{}'.format(msg, options, _choice_tmpl.format(default)))
         if val == '?' and help_string is not None:
             for x in range(0, linesToDelete):
                 delete_last_line()
-            print('Please enter a choice [Default choice({})]: {}'.format(default, '?'))
+            print('{}{}'.format(_choice_tmpl.format(default), '?'))
             print(help_string)
             continue
         if not val:
@@ -65,15 +71,15 @@ def prompt_user_friendly_choice_list(msg, a_list, default=1, help_string=None, e
             if ans in allowed_vals:
                 for x in range(0, linesToDelete):
                     delete_last_line()
-                print('Please enter a choice [Default choice({})]: {}'.format(default, a_list[ans - 1]))
+                print('{}{}'.format(_choice_tmpl.format(default), a_list[ans - 1]))
                 # array index is 0-based, user input is 1-based
                 return ans - 1
             raise ValueError
         except ValueError:
             for x in range(0, linesToDelete):
                 delete_last_line()
-            print('Please enter a choice [Default choice({})]: {}'.format(default, val))
-            logger.warning('Valid values are %s', allowed_vals)
+            print('{}{}'.format(_choice_tmpl.format(default), val))
+            logger.warning(_valid_tmpl, allowed_vals)
 
 
 def prompt_not_empty(msg, help_string=None):
@@ -81,7 +87,7 @@ def prompt_not_empty(msg, help_string=None):
     Wrapper on knacks prompt function which does not return until non none value is recieved from user input.
     """
     if not help_string:
-        help_string = 'This field cannot be left blank.'
+        help_string = _msgs.PROMPT_FIELD_NOT_BLANK if _msgs else 'This field cannot be left blank.'
     user_input = None
     while not user_input:
         user_input = prompt(msg=msg, help_string=help_string)
