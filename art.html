@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>螺旋星系流場 — 宇宙渦旋主義</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#000; overflow:hidden; font-family:'Courier New',monospace; }
+
+#ui-top-left {
+  position:fixed; top:20px; left:20px; z-index:10;
+}
+#ui-top-left h1 {
+  color:rgba(200,180,255,0.85); font-size:13px; letter-spacing:4px;
+  font-weight:normal; text-transform:uppercase;
+}
+#ui-top-left p {
+  color:rgba(120,90,180,0.55); font-size:10px; letter-spacing:3px; margin-top:5px;
+}
+
+#seed-display {
+  position:fixed; top:20px; right:20px; z-index:10;
+  color:rgba(120,90,180,0.5); font-size:10px; letter-spacing:3px;
+}
+
+#controls {
+  position:fixed; bottom:20px; left:20px; z-index:10;
+  background:rgba(8,4,20,0.88);
+  border:1px solid rgba(100,70,180,0.35);
+  padding:14px 18px; min-width:210px;
+}
+#controls h3 {
+  color:rgba(180,150,255,0.8); font-size:10px; letter-spacing:3px;
+  text-transform:uppercase; margin-bottom:12px;
+}
+.row { display:flex; align-items:center; gap:10px; margin:7px 0; }
+.lbl { width:72px; color:rgba(130,100,200,0.7); font-size:10px; letter-spacing:1px; }
+input[type=range] { width:90px; accent-color:#7050c0; cursor:pointer; }
+.val { width:26px; text-align:right; color:rgba(180,150,255,0.8); font-size:10px; }
+
+#seed-btns {
+  position:fixed; bottom:20px; right:20px; z-index:10;
+  display:flex; gap:6px;
+}
+button {
+  background:rgba(8,4,20,0.88); border:1px solid rgba(100,70,180,0.4);
+  color:rgba(150,120,220,0.8); padding:6px 12px;
+  font-family:'Courier New',monospace; font-size:10px; letter-spacing:1px;
+  cursor:pointer; transition:all 0.15s;
+}
+button:hover { background:rgba(70,40,140,0.6); color:rgba(220,200,255,0.95); }
+
+#hint {
+  position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+  color:rgba(80,55,130,0.4); font-size:9px; letter-spacing:2px; z-index:10;
+  pointer-events:none;
+}
+</style>
+</head>
+<body>
+
+<div id="ui-top-left">
+  <h1>螺旋星系流場</h1>
+  <p>宇宙渦旋主義 · Cosmic Vorticism</p>
+</div>
+
+<div id="seed-display">SEED <span id="seedNum">—</span></div>
+
+<div id="controls">
+  <h3>參數控制</h3>
+  <div class="row">
+    <span class="lbl">旋轉速度</span>
+    <input type="range" id="rotSpeed" min="1" max="100" value="38">
+    <span class="val" id="rotSpeedVal">38</span>
+  </div>
+  <div class="row">
+    <span class="lbl">湍流強度</span>
+    <input type="range" id="turbulence" min="0" max="100" value="45">
+    <span class="val" id="turbulenceVal">45</span>
+  </div>
+  <div class="row">
+    <span class="lbl">軌跡長度</span>
+    <input type="range" id="trailLen" min="1" max="100" value="35">
+    <span class="val" id="trailLenVal">35</span>
+  </div>
+  <div class="row">
+    <span class="lbl">星核強度</span>
+    <input type="range" id="coreStr" min="0" max="100" value="60">
+    <span class="val" id="coreStrVal">60</span>
+  </div>
+</div>
+
+<div id="seed-btns">
+  <button onclick="prevSeed()">◀ 上一個</button>
+  <button onclick="randomSeedBtn()">隨機種子</button>
+  <button onclick="nextSeed()">下一個 ▶</button>
+  <button onclick="doSave()">儲存 S</button>
+</div>
+
+<div id="hint">SPACE — 隨機種子 &nbsp;·&nbsp; S — 儲存截圖</div>
+
+<script>
+// ─── 全域狀態 ────────────────────────────────────────────────
+let currentSeed = Math.floor(Math.random() * 99999);
+let needsReinit = false;
+let sketchRef = null;
+
+function prevSeed()       { currentSeed = Math.max(0, currentSeed - 1); needsReinit = true; }
+function nextSeed()       { currentSeed++; needsReinit = true; }
+function randomSeedBtn()  { currentSeed = Math.floor(Math.random() * 99999); needsReinit = true; }
+function doSave()         { if (sketchRef) sketchRef.saveCanvas('cosmic-vorticism-' + currentSeed, 'png'); }
+
+// 同步滑桿數值顯示
+['rotSpeed','turbulence','trailLen','coreStr'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener('input', () => {
+    document.getElementById(id + 'Val').textContent = el.value;
+  });
+});
+
+function getParams() {
+  return {
+    rotSpeed:    parseFloat(document.getElementById('rotSpeed').value)   / 100,
+    turbulence:  parseFloat(document.getElementById('turbulence').value) / 100,
+    trailLen:    parseFloat(document.getElementById('trailLen').value)   / 100,
+    coreStr:     parseFloat(document.getElementById('coreStr').value)    / 100,
+  };
+}
+
+// ─── p5 Sketch ───────────────────────────────────────────────
+new p5(function(p) {
+  sketchRef = p;
+
+  const N = 2800;         // 粒子數
+  let particles = [];
+  let pg;                 // 軌跡緩衝區（HSB）
+
+  // ── 初始化 / 重新播種 ──
+  function initArt() {
+    p.randomSeed(currentSeed);
+    p.noiseSeed(currentSeed);
+    document.getElementById('seedNum').textContent = currentSeed;
+
+    // 清空軌跡
+    pg.background(0, 0, 0);
+
+    // 建立粒子（螺旋臂分布）
+    particles = [];
+    const R = Math.min(p.width, p.height) * 0.44;
+    const ARMS = 3;
+
+    for (let i = 0; i < N; i++) {
+      // r: 偏向中心的冪次分布
+      let r  = Math.pow(p.random(0.02, 1), 1.6) * R;
+      let arm = Math.floor(p.random(ARMS));
+      // 螺旋角：離心越遠轉得越多
+      let theta = arm * p.TWO_PI / ARMS + r * 0.0055 + p.random(-0.3, 0.3);
+
+      let x = p.width  / 2 + r * Math.cos(theta);
+      let y = p.height / 2 + r * Math.sin(theta);
+
+      particles.push({
+        x, y, px: x, py: y,
+        vx: 0, vy: 0,
+        r,
+        age: p.random(300),
+        life: p.random(180, 500),
+        baseHue: p.map(r, 0, R, 48, 270) + p.random(-15, 15),
+      });
+    }
+  }
+
+  // ── 設定 ──
+  p.setup = function() {
+    let cnv = p.createCanvas(p.windowWidth, p.windowHeight);
+    cnv.style('display', 'block');
+
+    // 軌跡層（HSB）
+    pg = p.createGraphics(p.width, p.height);
+    pg.colorMode(p.HSB, 360, 100, 100, 100);
+    p.colorMode(p.HSB, 360, 100, 100, 100);
+
+    initArt();
+  };
+
+  // ── 每幀 ──
+  p.draw = function() {
+    if (needsReinit) { initArt(); needsReinit = false; }
+
+    const params = getParams();
+    const cx = p.width  / 2;
+    const cy = p.height / 2;
+    const R  = Math.min(p.width, p.height) * 0.44;
+
+    // 軌跡淡出
+    const fade = p.map(params.trailLen, 0, 1, 18, 2.5);
+    pg.fill(0, 0, 0, fade);
+    pg.noStroke();
+    pg.rect(0, 0, p.width, p.height);
+
+    // 更新並繪製每個粒子
+    for (let i = 0; i < particles.length; i++) {
+      const pt = particles[i];
+      pt.age++;
+
+      // 壽命結束 → 在核心附近重生
+      if (pt.age > pt.life) {
+        const r   = Math.pow(p.random(0.02, 0.25), 1.6) * R;
+        const arm = Math.floor(p.random(3));
+        const theta = arm * p.TWO_PI / 3 + r * 0.0055 + p.random(-0.3, 0.3);
+        pt.x = cx + r * Math.cos(theta);
+        pt.y = cy + r * Math.sin(theta);
+        pt.px = pt.x; pt.py = pt.y;
+        pt.vx = 0;    pt.vy = 0;
+        pt.r  = r;
+        pt.age  = 0;
+        pt.life = p.random(180, 500);
+        pt.baseHue = p.map(r, 0, R, 48, 270) + p.random(-15, 15);
+        continue;
+      }
+
+      // ── 流場計算 ──
+      const dx = pt.x - cx, dy = pt.y - cy;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+
+      // 1. 螺旋切線方向（逆時針公轉）
+      const spiralAngle = Math.atan2(dy, dx) + p.HALF_PI;
+      const spiralStr   = params.rotSpeed * 2.8 * Math.max(0, 1 - dist / (R * 1.1));
+
+      // 2. Perlin 噪聲擾動
+      const ns    = 0.0014;
+      const nVal  = p.noise(pt.x * ns, pt.y * ns, p.frameCount * 0.0018);
+      const nAngle = nVal * p.TWO_PI * 2.2;
+      const nStr  = params.turbulence * 2.2;
+
+      // 3. 核心引力（微弱內拉）
+      const gAngle = Math.atan2(-dy, -dx);
+      const gStr   = params.coreStr * 0.25 / (1 + dist * 0.006);
+
+      pt.vx += Math.cos(spiralAngle) * spiralStr   * 0.09
+             + Math.cos(nAngle)      * nStr         * 0.07
+             + Math.cos(gAngle)      * gStr         * 0.06;
+      pt.vy += Math.sin(spiralAngle) * spiralStr   * 0.09
+             + Math.sin(nAngle)      * nStr         * 0.07
+             + Math.sin(gAngle)      * gStr         * 0.06;
+
+      pt.vx *= 0.91;
+      pt.vy *= 0.91;
+
+      pt.px = pt.x; pt.py = pt.y;
+      pt.x += pt.vx;
+      pt.y += pt.vy;
+
+      // 邊界回繞
+      if (pt.x < 0) pt.x = p.width;
+      else if (pt.x > p.width)  pt.x = 0;
+      if (pt.y < 0) pt.y = p.height;
+      else if (pt.y > p.height) pt.y = 0;
+
+      // ── 顏色 ──
+      const distRatio = dist / R;
+      let hue = pt.baseHue % 360;
+      let sat = p.map(distRatio, 0, 1, 8, 82);
+      let bri = p.map(distRatio, 0, 0.25, 100, 58);
+      const spd = Math.sqrt(pt.vx*pt.vx + pt.vy*pt.vy);
+      bri = p.constrain(bri + spd * 10, 35, 100);
+
+      if (distRatio < 0.08) { hue = 52; sat = 6; bri = 100; }  // 核心：純白熱
+
+      const alpha = p.map(pt.age, 0, pt.life, 85, 18);
+
+      pg.stroke(hue, sat, bri, alpha);
+      pg.strokeWeight(p.map(spd, 0, 3, 0.4, 1.6));
+      pg.line(pt.px, pt.py, pt.x, pt.y);
+    }
+
+    // 核心光暈
+    const cs = (params.coreStr * 90 + 12);
+    pg.noStroke();
+    for (let r = cs; r > 0; r -= 1.5) {
+      pg.fill(52, 15, 100, p.map(r, 0, cs, 55, 0));
+      pg.ellipse(cx, cy, r*2, r*2);
+    }
+    // 外圍暗邊（壓角）
+    for (let i = 0; i < 3; i++) {
+      pg.fill(0, 0, 0, 4);
+      pg.ellipse(cx, cy, (R*2.2 + i*30), (R*2.2 + i*30));
+    }
+
+    p.image(pg, 0, 0);
+  };
+
+  // ── 鍵盤 ──
+  p.keyPressed = function() {
+    if (p.key === ' ') { currentSeed = Math.floor(Math.random() * 99999); needsReinit = true; }
+    if (p.key === 's' || p.key === 'S') doSave();
+  };
+
+  p.windowResized = function() {
+    p.resizeCanvas(p.windowWidth, p.windowHeight);
+    pg = p.createGraphics(p.width, p.height);
+    pg.colorMode(p.HSB, 360, 100, 100, 100);
+    initArt();
+  };
+});
+</script>
+</body>
+</html>
