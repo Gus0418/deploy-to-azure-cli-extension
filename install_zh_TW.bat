@@ -53,14 +53,27 @@ if "%WHEEL_FILE%"=="" (
     echo     找不到 wheel 檔案，正在建立...
     pushd "%SCRIPT_DIR%deploy-to-azure"
     python setup.py sdist bdist_wheel
+    if errorlevel 1 (
+        echo 錯誤：wheel 建立失敗。
+        popd
+        exit /b 1
+    )
     popd
     for /f "delims=" %%f in ('dir /b /s "%SCRIPT_DIR%deploy-to-azure\dist\*.whl" 2^>nul') do set WHEEL_FILE=%%f
+)
+if "%WHEEL_FILE%"=="" (
+    echo 錯誤：無法找到或建立 wheel 安裝包。
+    exit /b 1
 )
 echo     使用安裝包：%WHEEL_FILE%
 
 REM 4. 安裝擴充套件
 echo ^>^>^> 安裝 deploy-to-azure 擴充套件...
 az extension add --source "%WHEEL_FILE%" --yes
+if errorlevel 1 (
+    echo 錯誤：擴充套件安裝失敗。請確認 wheel 檔案有效且 Azure CLI 正常運作。
+    exit /b 1
+)
 
 echo.
 echo ==============================

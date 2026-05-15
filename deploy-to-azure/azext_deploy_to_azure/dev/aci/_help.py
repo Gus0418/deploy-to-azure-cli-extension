@@ -3,6 +3,7 @@
 # Licensed under the MIT License. See License.txt in the project root for license information.
 # --------------------------------------------------------------------------------------------
 
+# pylint: disable=consider-using-f-string
 from knack.help_files import helps
 from azext_deploy_to_azure.dev.common.locale.locale_helper import get_messages
 
@@ -14,14 +15,14 @@ def load_aci_help():
                  else 'Deploy to Azure Container Instances using GitHub Actions. '
                       'Refer to https://aka.ms/aci-deploy-action for more information.')
 
-    helps['container app'] = f"""
+    helps['container app'] = """
     type: group
-    short-summary: {_group_short}
+    short-summary: {group_short}
     long-summary:
-    """
+    """.format(group_short=_group_short)
 
-    helps['container app up'] = f"""
+    helps['container app up'] = """
     type: command
-    short-summary: {_up_short}
+    short-summary: {up_short}
     long-summary:
-    """
+    """.format(up_short=_up_short)
