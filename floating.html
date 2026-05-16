@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>漂浮物品 — Floating Items</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  width:100vw; height:100vh; overflow:hidden;
+  background: radial-gradient(ellipse at 30% 40%, #0d1b2a 0%, #050c14 70%);
+  font-family: 'Courier New', monospace;
+  cursor: crosshair;
+  user-select: none;
+}
+
+/* 頂部控制列 */
+#toolbar {
+  position:fixed; top:0; left:0; right:0; height:48px;
+  background: rgba(8,20,35,0.92);
+  border-bottom: 1px solid rgba(60,140,220,0.2);
+  display:flex; align-items:center; gap:12px; padding:0 16px;
+  z-index:100;
+}
+#toolbar h1 {
+  color:rgba(160,210,255,0.85); font-size:12px; letter-spacing:3px;
+  text-transform:uppercase; font-weight:normal; white-space:nowrap;
+}
+.sep { width:1px; height:20px; background:rgba(60,140,220,0.2); }
+
+.ctrl-group { display:flex; align-items:center; gap:8px; }
+.ctrl-label { color:rgba(100,160,220,0.6); font-size:10px; letter-spacing:1px; white-space:nowrap; }
+input[type=range] { width:80px; accent-color:#3080c0; cursor:pointer; }
+.ctrl-val { color:rgba(140,190,255,0.8); font-size:10px; width:22px; }
+
+button {
+  background:rgba(30,60,100,0.6);
+  border:1px solid rgba(60,140,220,0.35);
+  color:rgba(140,200,255,0.8);
+  padding:4px 10px; font-family:inherit; font-size:10px;
+  letter-spacing:1px; cursor:pointer; transition:all 0.15s;
+}
+button:hover { background:rgba(50,100,160,0.7); color:#fff; }
+button.active { background:rgba(30,100,200,0.5); border-color:rgba(80,160,255,0.6); }
+
+#count-display {
+  margin-left:auto;
+  color:rgba(80,130,200,0.5); font-size:10px; letter-spacing:2px;
+}
+
+/* 畫布 */
+#canvas { position:fixed; top:48px; left:0; right:0; bottom:0; }
+
+/* 提示 */
+#hint {
+  position:fixed; bottom:14px; left:50%; transform:translateX(-50%);
+  color:rgba(60,110,180,0.4); font-size:9px; letter-spacing:2px;
+  pointer-events:none;
+}
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <h1>漂浮物品</h1>
+  <div class="sep"></div>
+
+  <div class="ctrl-group">
+    <span class="ctrl-label">重力</span>
+    <input type="range" id="gravity" min="0" max="100" value="15">
+    <span class="ctrl-val" id="gravityVal">15</span>
+  </div>
+
+  <div class="ctrl-group">
+    <span class="ctrl-label">彈性</span>
+    <input type="range" id="bounce" min="0" max="100" value="65">
+    <span class="ctrl-val" id="bounceVal">65</span>
+  </div>
+
+  <div class="ctrl-group">
+    <span class="ctrl-label">風力</span>
+    <input type="range" id="wind" min="0" max="100" value="8">
+    <span class="ctrl-val" id="windVal">8</span>
+  </div>
+
+  <div class="ctrl-group">
+    <span class="ctrl-label">大小</span>
+    <input type="range" id="sizeScale" min="20" max="100" value="50">
+    <span class="ctrl-val" id="sizeScaleVal">50</span>
+  </div>
+
+  <div class="sep"></div>
+  <button id="btnGravMode" class="active">地球引力</button>
+  <button id="btnZeroG">零重力</button>
+  <button id="btnExplode">爆炸！</button>
+  <button id="btnClear">清除</button>
+
+  <span id="count-display">0 個物品</span>
+</div>
+
+<canvas id="canvas"></canvas>
+<div id="hint">點擊空白處新增物品 · 拖曳移動 · 右鍵刪除</div>
+
+<script>
+// ─── 畫布設定 ─────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight - 48;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── 物品形狀定義 ─────────────────────────────────────────
+const SHAPES = ['circle','square','triangle','diamond','star','hexagon','cross'];
+const EMOJIS = ['🪐','💎','🔮','⭐','🌙','🌀','💫','🎲','🧿','🎯','🍀','🌸'];
+
+let items    = [];
+let nextId   = 0;
+let dragging = null;
+let dragOX   = 0, dragOY = 0;
+let mode     = 'gravity'; // 'gravity' | 'zerog'
+
+// ─── 控制讀取 ─────────────────────────────────────────────
+function getP() {
+  return {
+    gravity:   parseFloat(document.getElementById('gravity').value)   / 100,
+    bounce:    parseFloat(document.getElementById('bounce').value)    / 100,
+    wind:      parseFloat(document.getElementById('wind').value)      / 200,
+    sizeScale: parseFloat(document.getElementById('sizeScale').value) / 50,
+  };
+}
+
+['gravity','bounce','wind','sizeScale'].forEach(id => {
+  document.getElementById(id).addEventListener('input', function() {
+    document.getElementById(id + 'Val').textContent = this.value;
+  });
+});
+
+// ─── 物品建立 ─────────────────────────────────────────────
+function createItem(x, y) {
+  const p      = getP();
+  const shape  = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+  const emoji  = Math.random() < 0.35 ? EMOJIS[Math.floor(Math.random() * EMOJIS.length)] : null;
+  const size   = (28 + Math.random() * 44) * p.sizeScale;
+  const hue    = Math.random() * 360;
+  const mass   = size * size / 1600; // 面積正比質量
+
+  return {
+    id: nextId++,
+    x, y,
+    vx: (Math.random() - 0.5) * 6,
+    vy: (Math.random() - 0.5) * 6,
+    size, shape, emoji,
+    hue,
+    sat:  55 + Math.random() * 30,
+    bri:  55 + Math.random() * 30,
+    mass,
+    rot:  Math.random() * Math.PI * 2,
+    rotV: (Math.random() - 0.5) * 0.08,
+    alpha: 0,      // 淡入
+    life:  1,      // 1 = 存活
+    trail: [],     // 軌跡
+  };
+}
+
+function spawnItems(x, y, n=1) {
+  for (let i = 0; i < n; i++) items.push(createItem(x, y));
+  updateCount();
+}
+
+function updateCount() {
+  document.getElementById('count-display').textContent = items.length + ' 個物品';
+}
+
+// ─── 繪製單一物品 ─────────────────────────────────────────
+function drawItem(item) {
+  const { x, y, size, shape, emoji, hue, sat, bri, rot, alpha } = item;
+  const r = size / 2;
+
+  ctx.save();
+  ctx.globalAlpha = Math.min(alpha, item.life);
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+
+  // 發光效果
+  ctx.shadowColor = `hsl(${hue},${sat}%,70%)`;
+  ctx.shadowBlur  = size * 0.6;
+
+  if (emoji) {
+    // Emoji 物品
+    ctx.shadowBlur = size * 0.4;
+    ctx.font = `${size * 0.9}px serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(emoji, 0, 0);
+  } else {
+    // 幾何形狀
+    const grad = ctx.createRadialGradient(-r*0.3, -r*0.3, 0, 0, 0, r * 1.1);
+    grad.addColorStop(0, `hsl(${hue},${sat+20}%,${bri+25}%)`);
+    grad.addColorStop(0.6, `hsl(${hue},${sat}%,${bri}%)`);
+    grad.addColorStop(1, `hsl(${hue},${sat-10}%,${bri-20}%)`);
+
+    ctx.fillStyle = grad;
+    ctx.strokeStyle = `hsl(${hue},${sat+10}%,${bri+35}%)`;
+    ctx.lineWidth = 1.5;
+
+    ctx.beginPath();
+    drawShape(ctx, shape, r);
+    ctx.fill();
+    ctx.stroke();
+
+    // 高光
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = `rgba(255,255,255,0.18)`;
+    ctx.beginPath();
+    ctx.ellipse(-r*0.25, -r*0.28, r*0.38, r*0.22, -Math.PI/5, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawShape(ctx, shape, r) {
+  switch (shape) {
+    case 'circle':
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      break;
+    case 'square':
+      ctx.rect(-r, -r, r*2, r*2);
+      break;
+    case 'triangle':
+      ctx.moveTo(0, -r);
+      ctx.lineTo(r * 0.866, r * 0.5);
+      ctx.lineTo(-r * 0.866, r * 0.5);
+      ctx.closePath();
+      break;
+    case 'diamond':
+      ctx.moveTo(0, -r);
+      ctx.lineTo(r * 0.7, 0);
+      ctx.lineTo(0, r);
+      ctx.lineTo(-r * 0.7, 0);
+      ctx.closePath();
+      break;
+    case 'star': {
+      const inner = r * 0.42;
+      for (let i = 0; i < 10; i++) {
+        const angle = (i * Math.PI) / 5 - Math.PI / 2;
+        const rr = i % 2 === 0 ? r : inner;
+        i === 0 ? ctx.moveTo(Math.cos(angle)*rr, Math.sin(angle)*rr)
+                : ctx.lineTo(Math.cos(angle)*rr, Math.sin(angle)*rr);
+      }
+      ctx.closePath();
+      break;
+    }
+    case 'hexagon':
+      for (let i = 0; i < 6; i++) {
+        const angle = (i * Math.PI) / 3 - Math.PI / 6;
+        i === 0 ? ctx.moveTo(Math.cos(angle)*r, Math.sin(angle)*r)
+                : ctx.lineTo(Math.cos(angle)*r, Math.sin(angle)*r);
+      }
+      ctx.closePath();
+      break;
+    case 'cross': {
+      const t = r * 0.32;
+      ctx.moveTo(-t, -r); ctx.lineTo(t, -r);
+      ctx.lineTo(t, -t);  ctx.lineTo(r, -t);
+      ctx.lineTo(r, t);   ctx.lineTo(t, t);
+      ctx.lineTo(t, r);   ctx.lineTo(-t, r);
+      ctx.lineTo(-t, t);  ctx.lineTo(-r, t);
+      ctx.lineTo(-r, -t); ctx.lineTo(-t, -t);
+      ctx.closePath();
+      break;
+    }
+  }
+}
+
+// ─── 軌跡繪製 ─────────────────────────────────────────────
+function drawTrail(item) {
+  if (item.trail.length < 2) return;
+  ctx.save();
+  ctx.globalAlpha = 0.35 * Math.min(item.alpha, item.life);
+  for (let i = 1; i < item.trail.length; i++) {
+    const t = i / item.trail.length;
+    ctx.strokeStyle = `hsl(${item.hue},${item.sat}%,${item.bri}%)`;
+    ctx.lineWidth   = t * item.size * 0.25;
+    ctx.globalAlpha = t * 0.25 * Math.min(item.alpha, item.life);
+    ctx.beginPath();
+    ctx.moveTo(item.trail[i-1].x, item.trail[i-1].y);
+    ctx.lineTo(item.trail[i].x,   item.trail[i].y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── 物理更新 ─────────────────────────────────────────────
+function updateItem(item, p) {
+  if (item === dragging) return;
+
+  const W = canvas.width;
+  const H = canvas.height;
+  const r = item.size / 2;
+
+  // 淡入
+  item.alpha = Math.min(1, item.alpha + 0.04);
+
+  // 軌跡
+  const speed = Math.sqrt(item.vx**2 + item.vy**2);
+  if (speed > 1.5) {
+    item.trail.push({ x: item.x, y: item.y });
+    if (item.trail.length > 18) item.trail.shift();
+  }
+
+  // 重力 / 零重力
+  if (mode === 'gravity') {
+    item.vy += p.gravity * 0.45 * item.mass;
+  } else {
+    // 零重力：隨機漂浮
+    item.vx += (Math.random() - 0.5) * 0.15;
+    item.vy += (Math.random() - 0.5) * 0.15;
+  }
+
+  // 風力（正弦擾動）
+  const t = Date.now() / 3000;
+  item.vx += Math.sin(t + item.id * 0.7) * p.wind;
+
+  // 空氣阻力
+  item.vx *= 0.992;
+  item.vy *= 0.992;
+
+  // 速度上限
+  const maxV = 18;
+  const v = Math.sqrt(item.vx**2 + item.vy**2);
+  if (v > maxV) { item.vx = item.vx/v*maxV; item.vy = item.vy/v*maxV; }
+
+  // 位移
+  item.x += item.vx;
+  item.y += item.vy;
+  item.rot += item.rotV;
+
+  // 邊界碰撞
+  if (item.x - r < 0)   { item.x = r;   item.vx =  Math.abs(item.vx) * p.bounce; item.rotV *= -0.8; }
+  if (item.x + r > W)   { item.x = W-r; item.vx = -Math.abs(item.vx) * p.bounce; item.rotV *= -0.8; }
+  if (item.y - r < 0)   { item.y = r;   item.vy =  Math.abs(item.vy) * p.bounce; }
+  if (item.y + r > H)   {
+    item.y = H - r;
+    item.vy = -Math.abs(item.vy) * p.bounce;
+    item.vx *= 0.85; // 地面摩擦
+    if (Math.abs(item.vy) < 0.8) item.vy = 0;
+  }
+}
+
+// ─── 物品碰撞（簡化圓形近似）─────────────────────────────
+function resolveCollisions() {
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i+1; j < items.length; j++) {
+      const a = items[i], b = items[j];
+      if (a === dragging || b === dragging) continue;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const minD = (a.size + b.size) / 2 * 0.82;
+      if (dist < minD && dist > 0.01) {
+        const nx = dx/dist, ny = dy/dist;
+        const overlap = minD - dist;
+        const totalMass = a.mass + b.mass;
+        a.x -= nx * overlap * (b.mass / totalMass);
+        a.y -= ny * overlap * (b.mass / totalMass);
+        b.x += nx * overlap * (a.mass / totalMass);
+        b.y += ny * overlap * (a.mass / totalMass);
+
+        const dvx = b.vx - a.vx, dvy = b.vy - a.vy;
+        const dot = dvx*nx + dvy*ny;
+        if (dot < 0) {
+          const bounce = getP().bounce * 0.7;
+          const imp = (1 + bounce) * dot / totalMass;
+          a.vx += imp * b.mass * nx;
+          a.vy += imp * b.mass * ny;
+          b.vx -= imp * a.mass * nx;
+          b.vy -= imp * a.mass * ny;
+        }
+      }
+    }
+  }
+}
+
+// ─── 主迴圈 ───────────────────────────────────────────────
+function loop() {
+  const p = getP();
+
+  // 背景：不完全清除（殘影）
+  ctx.fillStyle = 'rgba(5,12,20,0.55)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  items.forEach(item => updateItem(item, p));
+  resolveCollisions();
+
+  // 先畫軌跡再畫物品
+  items.forEach(item => drawTrail(item));
+  items.forEach(item => drawItem(item));
+
+  requestAnimationFrame(loop);
+}
+
+// ─── 互動事件 ─────────────────────────────────────────────
+canvas.addEventListener('mousedown', e => {
+  if (e.button === 2) {
+    // 右鍵刪除最近的物品
+    const cx = e.clientX, cy = e.clientY - 48;
+    let nearest = null, minD = Infinity;
+    items.forEach(item => {
+      const d = Math.hypot(item.x - cx, item.y - cy);
+      if (d < item.size && d < minD) { minD = d; nearest = item; }
+    });
+    if (nearest) {
+      items = items.filter(i => i !== nearest);
+      updateCount();
+    }
+    return;
+  }
+
+  // 左鍵：找到點擊的物品 or 新增
+  const cx = e.clientX, cy = e.clientY - 48;
+  let hit = null;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (Math.hypot(item.x - cx, item.y - cy) < item.size / 2 + 8) {
+      hit = item; break;
+    }
+  }
+  if (hit) {
+    dragging = hit;
+    dragOX = cx - hit.x;
+    dragOY = cy - hit.y;
+  } else {
+    spawnItems(cx, cy, 1);
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const cx = e.clientX, cy = e.clientY - 48;
+  dragging.vx = cx - dragging.x;
+  dragging.vy = cy - dragging.y;
+  dragging.x = cx - dragOX;
+  dragging.y = cy - dragOY;
+});
+
+canvas.addEventListener('mouseup', () => { dragging = null; });
+canvas.addEventListener('mouseleave', () => { dragging = null; });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// 觸控支援
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  const cx = t.clientX, cy = t.clientY - 48;
+  let hit = null;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (Math.hypot(item.x - cx, item.y - cy) < item.size / 2 + 12) {
+      hit = item; break;
+    }
+  }
+  if (hit) { dragging = hit; dragOX = cx - hit.x; dragOY = cy - hit.y; }
+  else spawnItems(cx, cy, 1);
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!dragging) return;
+  const t = e.touches[0];
+  const cx = t.clientX, cy = t.clientY - 48;
+  dragging.vx = (cx - dragging.x) * 0.8;
+  dragging.vy = (cy - dragging.y) * 0.8;
+  dragging.x = cx - dragOX;
+  dragging.y = cy - dragOY;
+}, { passive: false });
+
+canvas.addEventListener('touchend', () => { dragging = null; });
+
+// ─── 按鈕 ─────────────────────────────────────────────────
+document.getElementById('btnGravMode').addEventListener('click', () => {
+  mode = 'gravity';
+  document.getElementById('btnGravMode').classList.add('active');
+  document.getElementById('btnZeroG').classList.remove('active');
+});
+
+document.getElementById('btnZeroG').addEventListener('click', () => {
+  mode = 'zerog';
+  document.getElementById('btnZeroG').classList.add('active');
+  document.getElementById('btnGravMode').classList.remove('active');
+});
+
+document.getElementById('btnExplode').addEventListener('click', () => {
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  items.forEach(item => {
+    const dx = item.x - cx, dy = item.y - cy;
+    const dist = Math.max(Math.hypot(dx, dy), 1);
+    const force = 800 / dist;
+    item.vx += (dx / dist) * force;
+    item.vy += (dy / dist) * force;
+    item.rotV += (Math.random() - 0.5) * 0.5;
+  });
+  // 也在中心爆出幾個新的
+  for (let i = 0; i < 5; i++) {
+    const it = createItem(cx + (Math.random()-0.5)*40, cy + (Math.random()-0.5)*40);
+    it.vx = (Math.random()-0.5) * 20;
+    it.vy = (Math.random()-0.5) * 20;
+    items.push(it);
+  }
+  updateCount();
+});
+
+document.getElementById('btnClear').addEventListener('click', () => {
+  items = [];
+  updateCount();
+});
+
+// ─── 初始物品 ─────────────────────────────────────────────
+for (let i = 0; i < 8; i++) {
+  spawnItems(
+    80 + Math.random() * (canvas.width - 160),
+    80 + Math.random() * (canvas.height - 200)
+  );
+}
+
+loop();
+</script>
+</body>
+</html>
