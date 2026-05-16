@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>Codex 浮動桌面助理</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  width:100vw; height:100vh; overflow:hidden;
+  background: #1a1a2e;
+  font-family: -apple-system, 'Segoe UI', sans-serif;
+}
+
+/* 桌面背景（模擬） */
+#desktop-bg {
+  position:fixed; inset:0;
+  background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+  display:flex; align-items:center; justify-content:center;
+  color:rgba(255,255,255,0.08); font-size:72px; font-weight:900;
+  letter-spacing:8px; text-transform:uppercase;
+  user-select:none;
+}
+
+/* ── 浮動視窗 ── */
+#widget {
+  position:fixed;
+  width:360px;
+  min-height:52px;
+  background: rgba(15,15,25,0.96);
+  border: 1px solid rgba(120,80,255,0.4);
+  border-radius:12px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(120,80,255,0.15);
+  backdrop-filter: blur(20px);
+  display:flex; flex-direction:column;
+  overflow:hidden;
+  top:80px; right:30px;
+  transition: box-shadow 0.2s;
+  z-index:9999;
+}
+#widget.dragging { box-shadow: 0 20px 60px rgba(0,0,0,0.9), 0 0 0 2px rgba(120,80,255,0.5); }
+#widget.collapsed #body { display:none; }
+
+/* 標題列 */
+#titlebar {
+  display:flex; align-items:center; gap:8px;
+  padding:10px 12px;
+  background: rgba(80,50,200,0.15);
+  border-bottom: 1px solid rgba(120,80,255,0.2);
+  cursor:grab; user-select:none;
+}
+#titlebar:active { cursor:grabbing; }
+
+.dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+#dot-close  { background:#ff5f57; cursor:pointer; }
+#dot-min    { background:#ffbd2e; cursor:pointer; }
+#dot-expand { background:#28ca41; cursor:pointer; }
+#dot-close:hover  { filter:brightness(1.3); }
+#dot-min:hover    { filter:brightness(1.3); }
+#dot-expand:hover { filter:brightness(1.3); }
+
+.title-icon { font-size:14px; }
+.title-text {
+  flex:1; color:rgba(200,180,255,0.9); font-size:12px;
+  font-weight:600; letter-spacing:1px;
+}
+.model-badge {
+  background:rgba(100,60,220,0.3); border:1px solid rgba(120,80,255,0.35);
+  color:rgba(180,150,255,0.8); font-size:9px; padding:2px 7px;
+  border-radius:10px; letter-spacing:0.5px; cursor:pointer;
+}
+
+/* 主體 */
+#body { display:flex; flex-direction:column; }
+
+/* API Key 設定區 */
+#api-setup {
+  padding:12px;
+  border-bottom:1px solid rgba(120,80,255,0.15);
+}
+#api-setup label {
+  display:block; color:rgba(140,110,255,0.7); font-size:10px;
+  letter-spacing:1px; margin-bottom:6px;
+}
+#api-setup-row { display:flex; gap:6px; }
+#api-key-input {
+  flex:1; background:rgba(255,255,255,0.05); border:1px solid rgba(120,80,255,0.3);
+  border-radius:6px; padding:6px 10px; color:rgba(220,210,255,0.9);
+  font-size:11px; font-family:monospace; outline:none;
+}
+#api-key-input:focus { border-color:rgba(120,80,255,0.7); }
+#api-key-input::placeholder { color:rgba(120,80,255,0.3); }
+.btn-save {
+  background:rgba(100,60,220,0.5); border:1px solid rgba(120,80,255,0.4);
+  color:rgba(200,180,255,0.9); padding:6px 10px; border-radius:6px;
+  font-size:10px; cursor:pointer; white-space:nowrap;
+}
+.btn-save:hover { background:rgba(120,80,255,0.6); }
+
+#api-status {
+  margin-top:6px; font-size:10px; color:rgba(120,80,255,0.5);
+}
+#api-status.ok  { color:#28ca41; }
+#api-status.err { color:#ff5f57; }
+
+/* 對話區 */
+#chat-area {
+  height:280px; overflow-y:auto; padding:10px;
+  display:flex; flex-direction:column; gap:8px;
+  scroll-behavior:smooth;
+}
+#chat-area::-webkit-scrollbar { width:3px; }
+#chat-area::-webkit-scrollbar-thumb { background:rgba(120,80,255,0.3); border-radius:3px; }
+
+.msg {
+  max-width:88%; padding:8px 12px; border-radius:10px;
+  font-size:12px; line-height:1.55; word-break:break-word;
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; } }
+
+.msg.user {
+  align-self:flex-end;
+  background:rgba(100,60,220,0.4); border:1px solid rgba(120,80,255,0.3);
+  color:rgba(220,210,255,0.95);
+  border-bottom-right-radius:3px;
+}
+.msg.assistant {
+  align-self:flex-start;
+  background:rgba(30,25,50,0.8); border:1px solid rgba(80,60,160,0.25);
+  color:rgba(210,200,240,0.9);
+  border-bottom-left-radius:3px;
+}
+.msg.system {
+  align-self:center; font-size:10px; letter-spacing:0.5px;
+  color:rgba(120,80,255,0.45); background:none; border:none; padding:2px 0;
+}
+.msg.thinking {
+  align-self:flex-start;
+  background:rgba(30,25,50,0.5); border:1px solid rgba(80,60,160,0.2);
+  color:rgba(120,80,255,0.6);
+}
+.thinking-dots span {
+  display:inline-block; animation:blink 1.2s infinite;
+}
+.thinking-dots span:nth-child(2) { animation-delay:0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay:0.4s; }
+@keyframes blink { 0%,80%,100%{opacity:0.2} 40%{opacity:1} }
+
+/* 輸入區 */
+#input-area {
+  display:flex; align-items:flex-end; gap:6px;
+  padding:10px; border-top:1px solid rgba(120,80,255,0.15);
+}
+#user-input {
+  flex:1; background:rgba(255,255,255,0.05); border:1px solid rgba(120,80,255,0.25);
+  border-radius:8px; padding:8px 10px; color:rgba(220,210,255,0.9);
+  font-size:12px; font-family:inherit; outline:none; resize:none;
+  max-height:80px; min-height:34px;
+  scrollbar-width:none; line-height:1.4;
+}
+#user-input:focus { border-color:rgba(120,80,255,0.6); }
+#user-input::placeholder { color:rgba(120,80,255,0.3); }
+
+#send-btn {
+  width:34px; height:34px; border-radius:8px; flex-shrink:0;
+  background:rgba(100,60,220,0.6); border:1px solid rgba(120,80,255,0.4);
+  color:rgba(220,210,255,0.9); cursor:pointer; font-size:14px;
+  display:flex; align-items:center; justify-content:center;
+  transition:all 0.15s;
+}
+#send-btn:hover:not(:disabled) { background:rgba(120,80,255,0.8); }
+#send-btn:disabled { opacity:0.35; cursor:not-allowed; }
+
+/* 底部工具列 */
+#footer {
+  display:flex; gap:4px; padding:6px 10px;
+  border-top:1px solid rgba(120,80,255,0.1);
+}
+.footer-btn {
+  flex:1; background:rgba(255,255,255,0.04); border:1px solid rgba(120,80,255,0.15);
+  color:rgba(140,110,255,0.6); padding:4px; border-radius:6px;
+  font-size:10px; cursor:pointer; letter-spacing:0.5px;
+  transition:all 0.15s;
+}
+.footer-btn:hover { background:rgba(80,50,200,0.2); color:rgba(180,150,255,0.9); }
+
+/* 大小調整把手 */
+#resize-handle {
+  position:absolute; bottom:0; left:0; right:0; height:4px;
+  cursor:ns-resize; background:transparent;
+}
+#resize-handle:hover { background:rgba(120,80,255,0.15); }
+</style>
+</head>
+<body>
+
+<div id="desktop-bg">DESKTOP</div>
+
+<!-- ── 浮動助理視窗 ── -->
+<div id="widget">
+
+  <!-- 標題列 -->
+  <div id="titlebar">
+    <div class="dot" id="dot-close"  title="關閉"></div>
+    <div class="dot" id="dot-min"    title="最小化"></div>
+    <div class="dot" id="dot-expand" title="展開/縮小"></div>
+    <span class="title-icon">✦</span>
+    <span class="title-text">Codex 助理</span>
+    <span class="model-badge" id="model-badge" title="點擊切換模型">gpt-4o</span>
+  </div>
+
+  <div id="body">
+    <!-- API Key 設定 -->
+    <div id="api-setup">
+      <label>OPENAI API KEY</label>
+      <div id="api-setup-row">
+        <input type="password" id="api-key-input" placeholder="sk-..." autocomplete="off">
+        <button class="btn-save" id="btn-save-key">儲存</button>
+      </div>
+      <div id="api-status">未設定</div>
+    </div>
+
+    <!-- 對話區 -->
+    <div id="chat-area">
+      <div class="msg system">Codex 桌面助理已就緒</div>
+    </div>
+
+    <!-- 輸入區 -->
+    <div id="input-area">
+      <textarea id="user-input" placeholder="輸入訊息… (Shift+Enter 換行)" rows="1"></textarea>
+      <button id="send-btn" disabled>↑</button>
+    </div>
+
+    <!-- 底部工具列 -->
+    <div id="footer">
+      <button class="footer-btn" id="btn-clear-chat">清除對話</button>
+      <button class="footer-btn" id="btn-copy-last">複製回答</button>
+      <button class="footer-btn" id="btn-code-mode">程式模式</button>
+    </div>
+  </div>
+
+  <div id="resize-handle"></div>
+</div>
+
+<script>
+// ── 狀態 ──────────────────────────────────────────────────
+let apiKey   = localStorage.getItem('codex_api_key') || '';
+let model    = localStorage.getItem('codex_model') || 'gpt-4o';
+let history  = []; // {role, content}
+let codeMode = false;
+let isLoading = false;
+
+const MODELS = ['gpt-4o','gpt-4o-mini','o3','o4-mini','gpt-4'];
+let modelIdx = MODELS.indexOf(model);
+if (modelIdx < 0) modelIdx = 0;
+
+// ── DOM refs ──────────────────────────────────────────────
+const widget     = document.getElementById('widget');
+const titlebar   = document.getElementById('titlebar');
+const chatArea   = document.getElementById('chat-area');
+const userInput  = document.getElementById('user-input');
+const sendBtn    = document.getElementById('send-btn');
+const apiKeyIn   = document.getElementById('api-key-input');
+const apiStatus  = document.getElementById('api-status');
+const modelBadge = document.getElementById('model-badge');
+
+// ── 初始化 ────────────────────────────────────────────────
+if (apiKey) {
+  apiKeyIn.value = '••••••••' + apiKey.slice(-4);
+  setApiStatus('已設定', 'ok');
+  sendBtn.disabled = false;
+}
+modelBadge.textContent = MODELS[modelIdx];
+
+// ── API Key 儲存 ──────────────────────────────────────────
+document.getElementById('btn-save-key').addEventListener('click', saveKey);
+apiKeyIn.addEventListener('keydown', e => { if (e.key === 'Enter') saveKey(); });
+
+function saveKey() {
+  const val = apiKeyIn.value.trim();
+  if (!val || val.startsWith('••')) return;
+  if (!val.startsWith('sk-')) {
+    setApiStatus('格式錯誤（應以 sk- 開頭）', 'err'); return;
+  }
+  apiKey = val;
+  localStorage.setItem('codex_api_key', apiKey);
+  apiKeyIn.value = '••••••••' + apiKey.slice(-4);
+  setApiStatus('已儲存 ✓', 'ok');
+  sendBtn.disabled = false;
+}
+
+function setApiStatus(msg, cls='') {
+  apiStatus.textContent = msg;
+  apiStatus.className = cls;
+}
+
+// ── 模型切換 ──────────────────────────────────────────────
+modelBadge.addEventListener('click', () => {
+  modelIdx = (modelIdx + 1) % MODELS.length;
+  model = MODELS[modelIdx];
+  modelBadge.textContent = model;
+  localStorage.setItem('codex_model', model);
+  addMsg('system', `模型切換為 ${model}`);
+});
+
+// ── 發送訊息 ──────────────────────────────────────────────
+sendBtn.addEventListener('click', sendMessage);
+userInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+
+// 自動調整高度
+userInput.addEventListener('input', () => {
+  userInput.style.height = 'auto';
+  userInput.style.height = Math.min(userInput.scrollHeight, 80) + 'px';
+});
+
+async function sendMessage() {
+  const text = userInput.value.trim();
+  if (!text || isLoading || !apiKey) return;
+
+  isLoading = true;
+  sendBtn.disabled = true;
+  userInput.value = '';
+  userInput.style.height = 'auto';
+
+  addMsg('user', text);
+  history.push({ role:'user', content: text });
+
+  // 顯示 thinking 泡泡
+  const thinkId = 'think-' + Date.now();
+  const thinkEl = addMsg('thinking',
+    '<span class="thinking-dots"><span>●</span><span>●</span><span>●</span></span>',
+    thinkId);
+
+  try {
+    const sysPrompt = codeMode
+      ? '你是一個程式碼助理。用簡潔的繁體中文回答，程式碼請用 markdown 格式。'
+      : '你是一個全能桌面助理，用簡潔的繁體中文回答。';
+
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role:'system', content: sysPrompt },
+          ...history.slice(-20), // 保留最近20則
+        ],
+        stream: false,
+        max_tokens: 1024,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error?.message || `HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    const reply = data.choices?.[0]?.message?.content || '（無回應）';
+    history.push({ role:'assistant', content: reply });
+
+    // 移除 thinking，顯示回答
+    thinkEl?.remove();
+    addMsg('assistant', formatText(reply));
+
+  } catch (err) {
+    thinkEl?.remove();
+    addMsg('system', `❌ 錯誤：${err.message}`);
+  } finally {
+    isLoading = false;
+    sendBtn.disabled = false;
+    userInput.focus();
+  }
+}
+
+// ── 訊息渲染 ──────────────────────────────────────────────
+function addMsg(role, html, id='') {
+  const el = document.createElement('div');
+  el.className = `msg ${role}`;
+  if (id) el.id = id;
+  el.innerHTML = html;
+  chatArea.appendChild(el);
+  chatArea.scrollTop = chatArea.scrollHeight;
+  return el;
+}
+
+function formatText(text) {
+  // 簡易 markdown：程式碼區塊、粗體、換行
+  return text
+    .replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) =>
+      `<pre style="background:rgba(0,0,0,0.4);padding:8px;border-radius:6px;overflow-x:auto;font-size:11px;margin:4px 0;border:1px solid rgba(120,80,255,0.2)"><code>${escHtml(code.trim())}</code></pre>`)
+    .replace(/`([^`]+)`/g, `<code style="background:rgba(120,80,255,0.15);padding:1px 5px;border-radius:3px;font-size:11px">$1</code>`)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── 底部按鈕 ──────────────────────────────────────────────
+document.getElementById('btn-clear-chat').addEventListener('click', () => {
+  history = [];
+  chatArea.innerHTML = '';
+  addMsg('system', '對話已清除');
+});
+
+document.getElementById('btn-copy-last').addEventListener('click', () => {
+  const msgs = chatArea.querySelectorAll('.msg.assistant');
+  if (!msgs.length) return;
+  const last = msgs[msgs.length - 1];
+  navigator.clipboard.writeText(last.innerText).then(() => {
+    addMsg('system', '已複製 ✓');
+  });
+});
+
+document.getElementById('btn-code-mode').addEventListener('click', function() {
+  codeMode = !codeMode;
+  this.style.color = codeMode ? 'rgba(40,200,80,0.9)' : '';
+  this.style.borderColor = codeMode ? 'rgba(40,200,80,0.3)' : '';
+  addMsg('system', codeMode ? '已切換為程式模式' : '已切換為一般模式');
+});
+
+// ── 標題列拖曳 ────────────────────────────────────────────
+let isDragging = false, dragX = 0, dragY = 0;
+
+titlebar.addEventListener('mousedown', e => {
+  if (e.target.classList.contains('dot') || e.target.classList.contains('model-badge')) return;
+  isDragging = true;
+  dragX = e.clientX - widget.offsetLeft;
+  dragY = e.clientY - widget.offsetTop;
+  widget.classList.add('dragging');
+});
+
+document.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  const x = Math.max(0, Math.min(window.innerWidth  - widget.offsetWidth,  e.clientX - dragX));
+  const y = Math.max(0, Math.min(window.innerHeight - widget.offsetHeight, e.clientY - dragY));
+  widget.style.left = x + 'px';
+  widget.style.top  = y + 'px';
+  widget.style.right = 'auto';
+});
+
+document.addEventListener('mouseup', () => {
+  isDragging = false;
+  widget.classList.remove('dragging');
+});
+
+// ── 視窗控制 ──────────────────────────────────────────────
+document.getElementById('dot-close').addEventListener('click', () => {
+  widget.style.display = 'none';
+});
+
+document.getElementById('dot-min').addEventListener('click', () => {
+  widget.classList.toggle('collapsed');
+});
+
+document.getElementById('dot-expand').addEventListener('click', () => {
+  const isWide = widget.style.width === '560px';
+  widget.style.width = isWide ? '360px' : '560px';
+  const chatH = isWide ? '280px' : '420px';
+  chatArea.style.height = chatH;
+});
+
+// ── 高度拖曳調整 ──────────────────────────────────────────
+const resizeHandle = document.getElementById('resize-handle');
+let isResizing = false, resizeStartY = 0, resizeStartH = 0;
+
+resizeHandle.addEventListener('mousedown', e => {
+  isResizing = true;
+  resizeStartY = e.clientY;
+  resizeStartH = chatArea.offsetHeight;
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', e => {
+  if (!isResizing) return;
+  const newH = Math.max(120, Math.min(600, resizeStartH + (e.clientY - resizeStartY)));
+  chatArea.style.height = newH + 'px';
+});
+
+document.addEventListener('mouseup', () => { isResizing = false; });
+
+// ── 全域快捷鍵（Esc 顯示/隱藏） ──────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    widget.style.display = widget.style.display === 'none' ? 'flex' : 'none';
+  }
+});
+</script>
+</body>
+</html>
