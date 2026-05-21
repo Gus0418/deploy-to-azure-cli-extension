@@ -26,20 +26,26 @@ jobs:
 
       - name: 安裝相依套件
         run: |
-          python -m pip install --upgrade pip "setuptools>=75" wheel
+          python -m pip install --upgrade pip
           pip install azure-cli-core knack requests colorama humanfriendly
           pip install pylint flake8 pytest
-          pip install -e deploy-to-azure/
 
       - name: 執行 pytest
+        # 以 PYTHONPATH 掛載套件來源，避免 setup.py develop 的 setuptools 相容問題
+        env:
+          PYTHONPATH: deploy-to-azure
         run: pytest deploy-to-azure/azext_deploy_to_azure/tests/ -v
 
       - name: 執行 pylint
         # --fail-under=9.0：評分低於 9.0 才視為失敗（避免既有警告誤判）
+        env:
+          PYTHONPATH: deploy-to-azure
         run: python -m pylint --rcfile pylintrc ./deploy-to-azure/azext_deploy_to_azure -f colorized --fail-under=9.0
 
       - name: 執行 flake8
         # flake8 設定檔含舊式行內註解，改以命令列傳遞等效選項
+        env:
+          PYTHONPATH: deploy-to-azure
         run: |
           python -m flake8 --isolated \
             --max-line-length=120 \
