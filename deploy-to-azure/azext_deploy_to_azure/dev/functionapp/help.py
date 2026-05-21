@@ -3,6 +3,7 @@
 # Licensed under the MIT License. See License.txt in the project root for license information.
 # --------------------------------------------------------------------------------------------
 
+# pylint: disable=consider-using-f-string
 from knack.help_files import helps
 from azext_deploy_to_azure.dev.common.locale.locale_helper import get_messages
 
@@ -20,27 +21,33 @@ def load_functionapp_help():
     _ex3_name = (_msgs.HELP_FUNCTIONAPP_EX3_NAME if _msgs
                  else 'Deploy/Setup GitHub action for a GitHub Repository to Azure Function')
 
-    helps['functionapp app'] = f"""
+    helps['functionapp app'] = """
     type: group
-    short-summary: {_group_short}
+    short-summary: {group_short}
     long-summary:
-    """
+    """.format(group_short=_group_short)  # pylint: disable=consider-using-f-string
 
-    helps['functionapp app up'] = f"""
+    helps['functionapp app up'] = """
     type: command
-    short-summary: {_up_short}
+    short-summary: {up_short}
     long-summary:
     examples:
-      - name: {_ex1_name}
+      - name: {ex1_name}
         text: |
           az functionapp app up
 
-      - name: {_ex2_name}
+      - name: {ex2_name}
         text: |
-          {_ex2_text}
+          {ex2_text}
           az functionapp app up --app-name AzFunctionPythonPreProd
 
-      - name: {_ex3_name}
+      - name: {ex3_name}
         text: |
           az functionapp app up --app-name AzFunctionPythonPreProd --repository https://github.com/azure/deploy-functions
-    """
+    """.format(
+        up_short=_up_short,
+        ex1_name=_ex1_name,
+        ex2_name=_ex2_name,
+        ex2_text=_ex2_text,
+        ex3_name=_ex3_name,
+    )

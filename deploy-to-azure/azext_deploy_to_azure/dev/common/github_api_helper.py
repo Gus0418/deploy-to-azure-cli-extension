@@ -247,7 +247,7 @@ def get_check_runs_for_commit(repo_name, commmit_sha):
 def get_work_flow_check_runID(repo_name, commmit_sha):
     check_run_found = False
     count = 0
-    while(not check_run_found or count > 3):
+    while not check_run_found or count > 3:
         check_runs_list_response = get_check_runs_for_commit(repo_name, commmit_sha)
         if check_runs_list_response and check_runs_list_response['total_count'] > 0:
             # fetch the Github actions check run and its check run ID

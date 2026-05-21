@@ -3,6 +3,7 @@
 # Licensed under the MIT License. See License.txt in the project root for license information.
 # --------------------------------------------------------------------------------------------
 
+# pylint: disable=consider-using-f-string
 from knack.help_files import helps
 from azext_deploy_to_azure.dev.common.locale.locale_helper import get_messages
 
@@ -12,14 +13,14 @@ def load_aks_help():
     _group_short = _msgs.HELP_AKS_GROUP_SHORT if _msgs else 'Commands to manage AKS app.'
     _up_short = _msgs.HELP_AKS_UP_SHORT if _msgs else 'Deploy to AKS via GitHub actions.'
 
-    helps['aks app'] = f"""
+    helps['aks app'] = """
     type: group
-    short-summary: {_group_short}
+    short-summary: {group_short}
     long-summary:
-    """
+    """.format(group_short=_group_short)
 
-    helps['aks app up'] = f"""
+    helps['aks app up'] = """
     type: command
-    short-summary: {_up_short}
+    short-summary: {up_short}
     long-summary:
-    """
+    """.format(up_short=_up_short)
