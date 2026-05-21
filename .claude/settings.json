@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 60,
+            "statusMessage": "git push 前執行 pytest...",
+            "command": "cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null); if echo \"$cmd\" | grep -qE 'git push'; then cd /home/user/deploy-to-azure-cli-extension && PYTHONPATH=/usr/local/lib/python3.11/dist-packages:/tmp/new_setuptools pytest deploy-to-azure/azext_deploy_to_azure/tests/ -q 2>&1 || exit 1; fi"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 60,
+            "statusMessage": "執行 pylint 檢查...",
+            "command": "cmd=$(jq -r '.tool_input.command // empty' 2>/dev/null); if echo \"$cmd\" | grep -qE 'git (commit|push)'; then cd /home/user/deploy-to-azure-cli-extension && PYTHONPATH=/usr/local/lib/python3.11/dist-packages:/tmp/new_setuptools python -m pylint --rcfile pylintrc ./deploy-to-azure/azext_deploy_to_azure 2>&1 | tail -3; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
